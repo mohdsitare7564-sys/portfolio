@@ -82,7 +82,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
   };
 
   return (
-    <section className="relative min-h-[92vh] pt-24 pb-16 flex flex-col justify-center items-center overflow-hidden border-b border-[#D8D0C0] bg-[#F4EFEB]">
+    <section id="hero" className="relative min-h-[92vh] pt-24 pb-16 flex flex-col justify-center items-center overflow-hidden border-b border-[#D8D0C0] bg-[#F4EFEB]">
       {/* Background: Authentic Vintage Architectural Sketch of Indian Railway Platform */}
       <div className="absolute inset-0 z-0">
         <img

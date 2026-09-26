@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Navbar } from './components/Navbar';
+import { TrailPathNav } from './components/TrailPathNav';
 import { HeroSection } from './components/HeroSection';
 import { AboutSection } from './components/AboutSection';
 import { ProjectsSection } from './components/ProjectsSection';
@@ -30,40 +31,43 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F4EFEB] text-[#1A1A1E] selection:bg-[#FFD200] selection:text-black">
-      {/* Strict 3-zone Navbar */}
+      {/* Fixed Top Header: Name on left, Hire Me & Slide Deck on right */}
       <Navbar
         onOpenDeck={() => setIsDeckOpen(true)}
         onOpenContact={handleHireMe}
       />
 
-      {/* Main Content Sections flowing continuously through all 5 Railway Stations */}
+      {/* Interactive Left Vertical Railway Trail Path Navigation with Pro Animations */}
+      <TrailPathNav />
+
+      {/* Main Content Sections flowing continuously through all Railway Stations */}
       <main>
-        {/* Station 01: Hero Section with Portfoliopur Railway Station Signboard & Sketch Background */}
+        {/* Station 00: Hero Section */}
         <HeroSection
           onOpenDeck={() => setIsDeckOpen(true)}
           onExploreWork={handleExploreWork}
           onHireMe={handleHireMe}
         />
 
-        {/* Station 01 Dossier: About Section featuring DDLJ Train Scene, Bio, Structured Info Grid & Interactive Railway Track */}
+        {/* Station 01 Dossier: About Section */}
         <AboutSection onSelectCategory={handleSelectCategory} />
 
-        {/* Station 02: Social Media Posters & Portfolio Gallery (Digital Dham / Instagram Mockups) */}
+        {/* Station 02: Social Media Posters & Portfolio Gallery */}
         <ProjectsSection
           selectedCategory={selectedCategory}
           onSelectCategory={handleSelectCategory}
         />
 
-        {/* Station 03: Packaging Designs Showcase (Packaging Garh / Kaanchi Co. Case Study) */}
+        {/* Station 03: Packaging Designs Showcase */}
         <PackagingSection />
 
-        {/* Station 04: Other Creative Pieces Showcase (Creativesar / 7 Authentic Artworks) */}
+        {/* Station 04: Other Creative Pieces Showcase */}
         <OtherCreativesSection />
 
-        {/* Station 05: AI Video Ads Showcase (Chalchitra Garh / Slurrp Farm Production Pipeline) */}
+        {/* Station 05: AI Video Ads Showcase */}
         <AIVideoAdsSection />
 
-        {/* Terminus: Thank You Appreciation & Direct Contact / Booking Hub */}
+        {/* Terminus / Station 06: Thank You & Direct Contact Hub */}
         <ContactSection />
       </main>
 
