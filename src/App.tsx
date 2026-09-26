@@ -9,10 +9,8 @@ import { OtherCreativesSection } from './components/OtherCreativesSection';
 import { AIVideoAdsSection } from './components/AIVideoAdsSection';
 import { ContactSection } from './components/ContactSection';
 import { Footer } from './components/Footer';
-import { PresentationDeckModal } from './components/PresentationDeckModal';
 
 export default function App() {
-  const [isDeckOpen, setIsDeckOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   const handleExploreWork = () => {
@@ -31,20 +29,18 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F4EFEB] text-[#1A1A1E] selection:bg-[#FFD200] selection:text-black">
-      {/* Fixed Top Header: Name on left, Hire Me & Slide Deck on right */}
+      {/* Fixed Top Header: Name on left, Hire Me on right */}
       <Navbar
-        onOpenDeck={() => setIsDeckOpen(true)}
         onOpenContact={handleHireMe}
       />
 
-      {/* Interactive Left Vertical Railway Trail Path Navigation with Pro Animations */}
+      {/* Interactive Left Vertical Railway Trail Path Navigation with 3D Vande Bharat Express */}
       <TrailPathNav />
 
       {/* Main Content Sections flowing continuously through all Railway Stations */}
       <main>
         {/* Station 00: Hero Section */}
         <HeroSection
-          onOpenDeck={() => setIsDeckOpen(true)}
           onExploreWork={handleExploreWork}
           onHireMe={handleHireMe}
         />
@@ -72,13 +68,7 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <Footer onOpenDeck={() => setIsDeckOpen(true)} />
-
-      {/* Full 6-Slide Presentation Deck Viewer */}
-      <PresentationDeckModal
-        isOpen={isDeckOpen}
-        onClose={() => setIsDeckOpen(false)}
-      />
+      <Footer />
     </div>
   );
 }

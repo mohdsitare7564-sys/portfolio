@@ -3,13 +3,12 @@ import { Volume2, VolumeX, ArrowDown, Presentation, Send, Sparkles, Train, Compa
 import { designerProfile } from '../data/portfolioData';
 
 interface HeroSectionProps {
-  onOpenDeck: () => void;
+  onOpenDeck?: () => void;
   onExploreWork: () => void;
   onHireMe: () => void;
 }
 
 export const HeroSection: React.FC<HeroSectionProps> = ({
-  onOpenDeck,
   onExploreWork,
   onHireMe,
 }) => {
@@ -260,14 +259,6 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
             <span>Platform 1: Selected Works</span>
           </button>
 
-          {/* View Presentation Deck */}
-          <button
-            onClick={onOpenDeck}
-            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white/90 hover:bg-white border-2 border-black text-black font-semibold text-xs sm:text-sm shadow-sm transition-all"
-          >
-            <Presentation className="w-4 h-4 text-[#821919]" />
-            <span>6-Slide Pitch Deck</span>
-          </button>
 
           {/* Direct Ticket Booking / Contact */}
           <button

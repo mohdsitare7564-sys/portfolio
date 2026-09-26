@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { ChevronDown, ChevronUp, Navigation } from 'lucide-react';
+import { ChevronDown, ChevronUp, Navigation, Volume2, VolumeX } from 'lucide-react';
 
 export interface SectionNode {
   id: string;
@@ -82,6 +82,7 @@ export const TrailPathNav: React.FC = () => {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [isMobileExpanded, setIsMobileExpanded] = useState<boolean>(false);
   const [scrollProgress, setScrollProgress] = useState<number>(0);
+  const [isSoundMuted, setIsSoundMuted] = useState<boolean>(false);
 
   // Precomputed station coordinates along SVG curve
   const [stationCoords, setStationCoords] = useState<{ [key: string]: { x: number; y: number } }>({});
@@ -92,6 +93,44 @@ export const TrailPathNav: React.FC = () => {
   const scrollProgressRef = useRef<number>(0);
   const smoothProgressRef = useRef<number>(0);
   const currentRotationRef = useRef<number>(0);
+
+  // Web Audio API Context and Timers for "chuk chuk chuk" procedural train sound
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const lastChugTimeRef = useRef<number>(0);
+  const chugCountRef = useRef<number>(0);
+  const isMutedRef = useRef<boolean>(false);
+  const lastPassedStationRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    isMutedRef.current = isSoundMuted;
+  }, [isSoundMuted]);
+
+  // Unlock Web Audio API context on any user interaction across the window
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (!audioCtxRef.current) {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          audioCtxRef.current = new AudioCtx();
+        }
+      }
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume();
+      }
+    };
+
+    window.addEventListener('pointerdown', unlockAudio, { passive: true });
+    window.addEventListener('scroll', unlockAudio, { passive: true });
+    window.addEventListener('wheel', unlockAudio, { passive: true });
+    window.addEventListener('touchstart', unlockAudio, { passive: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('scroll', unlockAudio);
+      window.removeEventListener('wheel', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+    };
+  }, []);
 
   // Three.js Engine references for 3D Train & Flying Smoke
   const threeRef = useRef<{
@@ -105,6 +144,121 @@ export const TrailPathNav: React.FC = () => {
     wheelRotation: number;
     isFacingUp: boolean;
   } | null>(null);
+
+  // REALISTIC ACOUSTIC INDIAN RAILWAYS MULTI-CHIME AIR HORN
+  const playTrainHorn = (ctx: AudioContext) => {
+    try {
+      const now = ctx.currentTime;
+      // Multi-chime chord: Eb4, F#4, Bb4, Eb5 octave
+      const chord = [311.13, 369.99, 466.16, 622.25];
+
+      const hornMasterGain = ctx.createGain();
+      hornMasterGain.gain.setValueAtTime(0, now);
+      hornMasterGain.gain.linearRampToValueAtTime(0.35, now + 0.05);
+      hornMasterGain.gain.setValueAtTime(0.35, now + 0.40);
+      hornMasterGain.gain.exponentialRampToValueAtTime(0.001, now + 0.75);
+
+      // Acoustic Lowpass Filter to recreate horn housing resonance
+      const bodyFilter = ctx.createBiquadFilter();
+      bodyFilter.type = 'lowpass';
+      bodyFilter.frequency.setValueAtTime(2200, now);
+
+      chord.forEach((fundamental) => {
+        // Create 2 detuned oscillators per chime note for rich chorus
+        [-2.5, 2.5].forEach((detuneHz) => {
+          const osc = ctx.createOscillator();
+          const oscGain = ctx.createGain();
+
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(fundamental + detuneHz, now);
+          // Slight pitch droop during horn burst
+          osc.frequency.exponentialRampToValueAtTime((fundamental + detuneHz) * 0.985, now + 0.75);
+
+          oscGain.gain.value = 0.15;
+          osc.connect(oscGain);
+          oscGain.connect(bodyFilter);
+
+          osc.start(now);
+          osc.stop(now + 0.75);
+        });
+      });
+
+      bodyFilter.connect(hornMasterGain);
+      hornMasterGain.connect(ctx.destination);
+    } catch {
+      // Audio fallback
+    }
+  };
+
+  // HIGH-FIDELITY ACOUSTIC TRAIN CHUG SYNTHESIZER ("CHUK-CHUK... CHUK-CHUK")
+  const playChugPulse = (ctx: AudioContext, patternIndex: number) => {
+    try {
+      const now = ctx.currentTime;
+      const isLeadChug = patternIndex % 2 === 0;
+
+      // 1. Heavy Steel Wheel Impact ("CHUK")
+      const thumpOsc = ctx.createOscillator();
+      const thumpGain = ctx.createGain();
+      thumpOsc.type = 'sine';
+      thumpOsc.frequency.setValueAtTime(isLeadChug ? 110 : 85, now);
+      thumpOsc.frequency.exponentialRampToValueAtTime(32, now + 0.08);
+
+      thumpGain.gain.setValueAtTime(isLeadChug ? 0.45 : 0.28, now);
+      thumpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+      thumpOsc.connect(thumpGain);
+      thumpGain.connect(ctx.destination);
+      thumpOsc.start(now);
+      thumpOsc.stop(now + 0.085);
+
+      // 2. High-Pressure Steam & Track Friction Hiss ("CHUFF")
+      const noiseLen = Math.floor(ctx.sampleRate * 0.07);
+      const buffer = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
+      const channel = buffer.getChannelData(0);
+      for (let i = 0; i < noiseLen; i++) {
+        // Pink-tinted random noise decay
+        const env = Math.pow(1 - i / noiseLen, 1.8);
+        channel[i] = (Math.random() * 2 - 1) * env;
+      }
+
+      const noiseNode = ctx.createBufferSource();
+      noiseNode.buffer = buffer;
+
+      const bandpass = ctx.createBiquadFilter();
+      bandpass.type = 'bandpass';
+      bandpass.frequency.setValueAtTime(isLeadChug ? 1850 : 1350, now);
+      bandpass.Q.setValueAtTime(2.2, now);
+
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(isLeadChug ? 0.35 : 0.22, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+
+      noiseNode.connect(bandpass);
+      bandpass.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+
+      noiseNode.start(now);
+      noiseNode.stop(now + 0.075);
+
+      // 3. Steel Rail Joint Click ("CLACK")
+      const clickNode = ctx.createOscillator();
+      const clickGain = ctx.createGain();
+      clickNode.type = 'sawtooth';
+      clickNode.frequency.setValueAtTime(isLeadChug ? 2400 : 1800, now);
+      clickNode.frequency.exponentialRampToValueAtTime(400, now + 0.015);
+
+      clickGain.gain.setValueAtTime(0.18, now);
+      clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
+
+      clickNode.connect(clickGain);
+      clickGain.connect(ctx.destination);
+
+      clickNode.start(now);
+      clickNode.stop(now + 0.02);
+    } catch {
+      // Audio fallback
+    }
+  };
 
   // 1. Calculate Station Coordinates on SVG Path
   useEffect(() => {
@@ -159,7 +313,7 @@ export const TrailPathNav: React.FC = () => {
     };
   }, []);
 
-  // 3. FULL WEBGL 3D LOCOMOTIVE PHYSICS ENGINE (ULTRA-SMOOTH LERP IN BOTH DIRECTIONS)
+  // 3. FULL WEBGL 3D TRAIN SET IN ROYAL CRIMSON & GOLD LIVERY
   useEffect(() => {
     if (!canvasContainerRef.current) return;
     const container = canvasContainerRef.current;
@@ -180,114 +334,199 @@ export const TrailPathNav: React.FC = () => {
 
     container.appendChild(renderer.domElement);
 
-    // Studio Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+    // Studio Lighting for glossy Royal Crimson & Gold Yellow Train
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.7);
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffd200, 2.0);
-    dirLight.position.set(30, -50, 40);
-    scene.add(dirLight);
+    const sunLight = new THREE.DirectionalLight(0xffd200, 1.9);
+    sunLight.position.set(40, -60, 50);
+    scene.add(sunLight);
 
-    const rimLight = new THREE.DirectionalLight(0x821919, 1.0);
-    rimLight.position.set(-20, 50, -20);
+    const rimLight = new THREE.DirectionalLight(0x9e1b1b, 1.4);
+    rimLight.position.set(-30, 40, 20);
     scene.add(rimLight);
 
-    // BUILD 3D LOCOMOTIVE ENGINE IN 3D SPACE
+    // ==========================================
+    // BUILD 3D TRAIN IN ROYAL CRIMSON & GOLD LIVERY
+    // ==========================================
     const trainGroup = new THREE.Group();
 
-    // 1. Engine Main Body Hood
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x821919, metalness: 0.7, roughness: 0.3 });
-    const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(16, 26, 12), bodyMat);
-    bodyMesh.position.z = 6;
-    trainGroup.add(bodyMesh);
+    // Vibrant Materials
+    const crimsonBodyMat = new THREE.MeshStandardMaterial({ color: 0x9e1b1b, metalness: 0.4, roughness: 0.2 });
+    const goldStripeMat = new THREE.MeshStandardMaterial({ color: 0xffd200, metalness: 0.7, roughness: 0.3 });
+    const blackNoseMat = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.8, roughness: 0.3 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.1, metalness: 0.9 });
+    const darkFrameMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, metalness: 0.7, roughness: 0.4 });
+    const roofEquipmentMat = new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.8, roughness: 0.3 });
+    const bogieFrameMat = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.8, roughness: 0.5 });
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x4b5563, metalness: 0.9, roughness: 0.2 });
+    const ledMat = new THREE.MeshStandardMaterial({ color: 0xfff4a3, emissive: 0xfff4a3, emissiveIntensity: 2.8 });
 
-    // 2. Yellow Chevron Stripe
-    const stripeMat = new THREE.MeshStandardMaterial({ color: 0xffd200, metalness: 0.8 });
-    const stripeMesh = new THREE.Mesh(new THREE.BoxGeometry(16.5, 3.5, 12.2), stripeMat);
-    stripeMesh.position.z = 5.5;
-    trainGroup.add(stripeMesh);
-
-    // 3. Driver's Cabin Roof
-    const cabinMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1e, metalness: 0.6 });
-    const cabinMesh = new THREE.Mesh(new THREE.BoxGeometry(15, 10, 10), cabinMat);
-    cabinMesh.position.set(0, 7, 11);
-    trainGroup.add(cabinMesh);
-
-    // Cockpit Windows (Amber Glow)
-    const windowMat = new THREE.MeshStandardMaterial({ color: 0xffd200, emissive: 0xffd200, emissiveIntensity: 1.2 });
-    const windowMesh = new THREE.Mesh(new THREE.BoxGeometry(15.2, 4, 6), windowMat);
-    windowMesh.position.set(0, 7, 12);
-    trainGroup.add(windowMesh);
-
-    // Roof Chimney
-    const chimneyMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(2, 2, 6, 16),
-      new THREE.MeshStandardMaterial({ color: 0x111111 })
-    );
-    chimneyMesh.rotation.x = Math.PI / 2;
-    chimneyMesh.position.set(0, -7, 14);
-    trainGroup.add(chimneyMesh);
-
-    // Front Cowcatcher Plow
-    const plowMesh = new THREE.Mesh(
-      new THREE.ConeGeometry(8, 6, 4),
-      new THREE.MeshStandardMaterial({ color: 0x111111 })
-    );
-    plowMesh.rotation.x = -Math.PI / 4;
-    plowMesh.position.set(0, -14, 3);
-    trainGroup.add(plowMesh);
-
-    // Dual Headlights
-    const hlMat = new THREE.MeshStandardMaterial({ color: 0xfff4a3, emissive: 0xfff4a3, emissiveIntensity: 2 });
-    const hlL = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 1.5, 12), hlMat);
-    hlL.position.set(-5, -13, 6);
-    trainGroup.add(hlL);
-
-    const hlR = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 1.5, 12), hlMat);
-    hlR.position.set(5, -13, 6);
-    trainGroup.add(hlR);
-
-    // SPINNING 3D WHEELS (Mechanical wheel rotation)
     const wheels: THREE.Mesh[] = [];
-    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.9 });
-    const wheelGeo = new THREE.CylinderGeometry(3.2, 3.2, 2.2, 16);
 
-    const wheelLocs = [
-      [-8.5, -8, 2],
-      [8.5, -8, 2],
-      [-8.5, 0, 2],
-      [8.5, 0, 2],
-      [-8.5, 8, 2],
-      [8.5, 8, 2],
-    ];
+    // Helper to build a wheel bogie assembly
+    const createBogie = (yPos: number) => {
+      const bogie = new THREE.Group();
+      bogie.position.set(0, yPos, 1.5);
 
-    wheelLocs.forEach(([wx, wy, wz]) => {
-      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-      wheel.rotation.y = Math.PI / 2;
-      wheel.position.set(wx, wy, wz);
-      trainGroup.add(wheel);
-      wheels.push(wheel);
-    });
+      // Bogie base frame
+      const frameMesh = new THREE.Mesh(new THREE.BoxGeometry(13.5, 7.5, 1.8), bogieFrameMat);
+      bogie.add(frameMesh);
+
+      // 4 wheels per bogie
+      const wheelGeo = new THREE.CylinderGeometry(2.2, 2.2, 1.6, 16);
+      const wheelOffsets = [
+        [-6.5, -2.5],
+        [6.5, -2.5],
+        [-6.5, 2.5],
+        [6.5, 2.5],
+      ];
+
+      wheelOffsets.forEach(([wx, wy]) => {
+        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(wx, wy, 0);
+        bogie.add(wheel);
+        wheels.push(wheel);
+      });
+
+      return bogie;
+    };
+
+    // ------------------------------------------
+    // CAR 1: ROYAL CRIMSON & GOLD ENGINE NOSE CAR
+    // ------------------------------------------
+    const engineCar = new THREE.Group();
+    engineCar.position.set(0, -11, 5);
+
+    // 1. Deep Crimson Main Car Body
+    const engineBody = new THREE.Mesh(new THREE.BoxGeometry(13, 20, 7.5), crimsonBodyMat);
+    engineBody.position.set(0, 0, 0);
+    engineCar.add(engineBody);
+
+    // 2. Bold Golden Yellow Side Stripes
+    const engineGoldStripe = new THREE.Mesh(new THREE.BoxGeometry(13.4, 20.1, 2.2), goldStripeMat);
+    engineGoldStripe.position.set(0, 0, -1.2);
+    engineCar.add(engineGoldStripe);
+
+    // 3. Front Nose Chevron Accents (Golden Yellow)
+    const chevronLeft = new THREE.Mesh(new THREE.BoxGeometry(1.2, 6, 2.4), goldStripeMat);
+    chevronLeft.position.set(-6.2, -7, -1.1);
+    engineCar.add(chevronLeft);
+
+    const chevronRight = new THREE.Mesh(new THREE.BoxGeometry(1.2, 6, 2.4), goldStripeMat);
+    chevronRight.position.set(6.2, -7, -1.1);
+    engineCar.add(chevronRight);
+
+    // 4. Front Windshield & Nose Mask (Polished Jet Black)
+    const windshieldMesh = new THREE.Mesh(new THREE.BoxGeometry(11.8, 5.5, 4.5), blackNoseMat);
+    windshieldMesh.position.set(0, -8.2, 1.6);
+    engineCar.add(windshieldMesh);
+
+    // Dark Nose Bumper
+    const noseBumper = new THREE.Mesh(new THREE.BoxGeometry(11, 2, 4), darkFrameMat);
+    noseBumper.position.set(0, -10.8, -1);
+    engineCar.add(noseBumper);
+
+    // 5. Embedded Twin Amber-White LED Headlight Bars
+    const headlightL = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.8, 0.8), ledMat);
+    headlightL.position.set(-3.5, -10.2, 0.8);
+    engineCar.add(headlightL);
+
+    const headlightR = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.8, 0.8), ledMat);
+    headlightR.position.set(3.5, -10.2, 0.8);
+    engineCar.add(headlightR);
+
+    // 6. Side Passenger Windows
+    const sideWindowL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 14, 2.2), glassMat);
+    sideWindowL.position.set(-6.55, 1, 1.2);
+    engineCar.add(sideWindowL);
+
+    const sideWindowR = new THREE.Mesh(new THREE.BoxGeometry(0.3, 14, 2.2), glassMat);
+    sideWindowR.position.set(6.55, 1, 1.2);
+    engineCar.add(sideWindowR);
+
+    // 7. Roof HVAC Equipment
+    const roofHVAC = new THREE.Mesh(new THREE.BoxGeometry(9, 7, 1.2), roofEquipmentMat);
+    roofHVAC.position.set(0, 2, 4.2);
+    engineCar.add(roofHVAC);
+
+    // Bogies for Engine Car
+    const engineBogie1 = createBogie(-5);
+    engineCar.add(engineBogie1);
+
+    const engineBogie2 = createBogie(5);
+    engineCar.add(engineBogie2);
+
+    trainGroup.add(engineCar);
+
+    // ------------------------------------------
+    // ACCORDION GANGWAY BELLOWS (Coupler)
+    // ------------------------------------------
+    const bellowsMesh = new THREE.Mesh(new THREE.BoxGeometry(10.5, 3.5, 6.5), darkFrameMat);
+    bellowsMesh.position.set(0, 1, 5);
+    trainGroup.add(bellowsMesh);
+
+    // ------------------------------------------
+    // CAR 2: ROYAL CRIMSON PASSENGER COACH
+    // ------------------------------------------
+    const coachCar = new THREE.Group();
+    coachCar.position.set(0, 13, 5);
+
+    // 1. Deep Crimson Coach Body
+    const coachBody = new THREE.Mesh(new THREE.BoxGeometry(13, 20, 7.5), crimsonBodyMat);
+    coachBody.position.set(0, 0, 0);
+    coachCar.add(coachBody);
+
+    // 2. Bold Golden Yellow Side Stripe
+    const coachGoldStripe = new THREE.Mesh(new THREE.BoxGeometry(13.4, 20.1, 2.2), goldStripeMat);
+    coachGoldStripe.position.set(0, 0, -1.2);
+    coachCar.add(coachGoldStripe);
+
+    // 3. Continuous Side Window Band
+    const coachWindowL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 17, 2.2), glassMat);
+    coachWindowL.position.set(-6.55, 0, 1.2);
+    coachCar.add(coachWindowL);
+
+    const coachWindowR = new THREE.Mesh(new THREE.BoxGeometry(0.3, 17, 2.2), glassMat);
+    coachWindowR.position.set(6.55, 0, 1.2);
+    coachCar.add(coachWindowR);
+
+    // 4. Roof AC Units
+    const coachRoofHVAC = new THREE.Mesh(new THREE.BoxGeometry(9, 8, 1.2), roofEquipmentMat);
+    coachRoofHVAC.position.set(0, 0, 4.2);
+    coachCar.add(coachRoofHVAC);
+
+    // Bogies for Coach Car
+    const coachBogie1 = createBogie(-5);
+    coachCar.add(coachBogie1);
+
+    const coachBogie2 = createBogie(5);
+    coachCar.add(coachBogie2);
+
+    trainGroup.add(coachCar);
 
     scene.add(trainGroup);
 
-    // 3D VOLUMETRIC FLYING SMOKE PARTICLES ("SMOKE IS FLY")
-    const smokeParticles: { mesh: THREE.Mesh; opacity: number; scale: number; speedY: number; speedZ: number }[] = [];
-    const smokeGeo = new THREE.DodecahedronGeometry(2.5, 1);
+    // ------------------------------------------
+    // 3D VOLUMETRIC FLYING STEAM PUFFS
+    // ------------------------------------------
+    const steamParticles: { mesh: THREE.Mesh; opacity: number; scale: number; speedY: number; speedZ: number }[] = [];
+    const steamGeo = new THREE.DodecahedronGeometry(2.2, 1);
 
-    for (let i = 0; i < 22; i++) {
-      const smokeMat = new THREE.MeshBasicMaterial({
-        color: 0xf5f2eb,
+    for (let i = 0; i < 25; i++) {
+      const steamMat = new THREE.MeshBasicMaterial({
+        color: 0xfdfbf7,
         transparent: true,
-        opacity: 0.8,
+        opacity: 0.75,
       });
-      const smokeMesh = new THREE.Mesh(smokeGeo, smokeMat);
-      scene.add(smokeMesh);
-      smokeParticles.push({
-        mesh: smokeMesh,
+      const steamMesh = new THREE.Mesh(steamGeo, steamMat);
+      scene.add(steamMesh);
+      steamParticles.push({
+        mesh: steamMesh,
         opacity: Math.random() * 0.7 + 0.3,
         scale: Math.random() * 0.5 + 0.5,
-        speedY: -0.8 - Math.random() * 0.5,
+        speedY: -0.7 - Math.random() * 0.5,
         speedZ: 0.4 + Math.random() * 0.3,
       });
     }
@@ -298,13 +537,13 @@ export const TrailPathNav: React.FC = () => {
       renderer,
       trainGroup,
       wheels,
-      smokeParticles,
+      smokeParticles: steamParticles,
       prevProgress: 0,
       wheelRotation: 0,
       isFacingUp: false,
     };
 
-    // 60FPS 3D LOCOMOTIVE PHYSICS DRIVING RENDER LOOP WITH BUTTER-SMOOTH LERP
+    // 60FPS 3D TRAIN DRIVING LOOP WITH CHUK-CHUK SOUND SYNTHESIS
     let animId: number;
 
     const animateLocomotivePhysics = () => {
@@ -313,16 +552,15 @@ export const TrailPathNav: React.FC = () => {
         const path = pathRef.current;
         const totalLength = path.getTotalLength();
 
-        // 1. Smooth lerp for scroll progress (0.14 factor for butter-smooth fluid motion in both directions)
+        // Smooth lerp for scroll progress
         const targetProg = scrollProgressRef.current;
         smoothProgressRef.current += (targetProg - smoothProgressRef.current) * 0.14;
         const currentProg = Math.min(Math.max(smoothProgressRef.current, 0), 1);
 
-        // 2. Compute travel speed delta for orientation and wheel rotation
+        // Compute travel speed delta for orientation and wheel rotation
         const deltaProgress = currentProg - threeRef.current.prevProgress;
         threeRef.current.prevProgress = currentProg;
 
-        // Smooth direction detection threshold
         if (deltaProgress < -0.0003) {
           threeRef.current.isFacingUp = true;
         } else if (deltaProgress > 0.0003) {
@@ -330,6 +568,49 @@ export const TrailPathNav: React.FC = () => {
         }
 
         const isFacingUp = threeRef.current.isFacingUp;
+
+        // PROCEDURAL RHYTHMIC "CHUK CHUK CHUK" TRAIN SOUND ENGINE
+        const speedMagnitude = Math.abs(deltaProgress);
+        if (!isMutedRef.current && speedMagnitude > 0.00005) {
+          const nowMs = Date.now();
+          const chugInterval = Math.max(110, 240 - speedMagnitude * 50000);
+
+          if (nowMs - lastChugTimeRef.current > chugInterval) {
+            lastChugTimeRef.current = nowMs;
+            if (!audioCtxRef.current) {
+              const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+              if (AudioCtx) audioCtxRef.current = new AudioCtx();
+            }
+            if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+              audioCtxRef.current.resume();
+            }
+            if (audioCtxRef.current) {
+              const isAccent = chugCountRef.current % 2 === 0;
+              chugCountRef.current++;
+              playChugPulse(audioCtxRef.current, isAccent);
+            }
+          }
+        }
+
+        // AUTOMATIC LOCOMOTIVE HORN AT EACH STATION STOP ("POOO-POOO!")
+        SECTIONS.forEach((sec) => {
+          const distToStation = Math.abs(currentProg - sec.fraction);
+          if (distToStation < 0.015 && lastPassedStationRef.current !== sec.id) {
+            lastPassedStationRef.current = sec.id;
+            if (!isMutedRef.current) {
+              if (!audioCtxRef.current) {
+                const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+                if (AudioCtx) audioCtxRef.current = new AudioCtx();
+              }
+              if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+                audioCtxRef.current.resume();
+              }
+              if (audioCtxRef.current) {
+                playTrainHorn(audioCtxRef.current);
+              }
+            }
+          }
+        });
 
         // Extract 2D/3D Path Coordinates along track
         const currentDist = currentProg * totalLength;
@@ -342,18 +623,17 @@ export const TrailPathNav: React.FC = () => {
         const dy = ptNext.y - pt.y;
         const targetAngleRad = Math.atan2(dy, dx) + Math.PI / 2;
 
-        // Smooth angle lerp for 180° turns so direction flip is butter-smooth!
         let angleDiff = targetAngleRad - currentRotationRef.current;
-        angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff)); // Normalize to [-PI, PI]
+        angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
         currentRotationRef.current += angleDiff * 0.12;
 
-        // Position 3D Train Engine
-        trainGroup.position.set(pt.x, pt.y, 10);
+        // Position 3D Train Group
+        trainGroup.position.set(pt.x, pt.y, 8);
         trainGroup.rotation.z = currentRotationRef.current;
 
-        // Mechanical Wheel Spin Physics: Wheels always spin forward in direction of travel
+        // Mechanical Wheel Spin Physics: Wheels spin continuously along track
         const travelDist = Math.abs(deltaProgress * totalLength);
-        const wheelRadius = 3.2;
+        const wheelRadius = 2.2;
 
         threeRef.current.wheelRotation += travelDist / wheelRadius;
         const currentWheelRot = threeRef.current.wheelRotation;
@@ -363,28 +643,27 @@ export const TrailPathNav: React.FC = () => {
         });
 
         // Locomotive Body Chugging Vibration
-        const speedMagnitude = Math.abs(deltaProgress);
-        const chugVibration = Math.sin(Date.now() * 0.04) * 0.8 * (speedMagnitude > 0.0001 ? 1.5 : 0.4);
-        trainGroup.position.z = 10 + chugVibration;
+        const chugVibration = Math.sin(Date.now() * 0.05) * 0.3 * (speedMagnitude > 0.0001 ? 1.2 : 0.2);
+        trainGroup.position.z = 8 + chugVibration;
 
-        // Centrifugal Body Roll on track curves
-        const curveCurvature = (currentRotationRef.current - Math.PI / 2) * 0.4;
-        trainGroup.rotation.y = curveCurvature * 0.25;
+        // Smooth Banking on Curves
+        const curveCurvature = (currentRotationRef.current - Math.PI / 2) * 0.3;
+        trainGroup.rotation.y = curveCurvature * 0.2;
 
-        // ANIMATE VOLUMETRIC FLYING SMOKE PUFFS ("SMOKE IS FLY")
+        // ANIMATE VOLUMETRIC FLYING STEAM PUFFS
         smokeParticles.forEach((sp) => {
-          const smokeDirectionY = isFacingUp ? 0.8 : -0.8;
-          sp.mesh.position.y += smokeDirectionY;
+          const steamDirectionY = isFacingUp ? 0.8 : -0.8;
+          sp.mesh.position.y += steamDirectionY;
           sp.mesh.position.z += sp.speedZ;
           sp.scale += 0.04;
-          (sp.mesh.material as THREE.MeshBasicMaterial).opacity -= 0.02;
+          (sp.mesh.material as THREE.MeshBasicMaterial).opacity -= 0.018;
 
-          // Reset smoke particles to chimney stack location
+          // Reset steam particles to train roof location
           if ((sp.mesh.material as THREE.MeshBasicMaterial).opacity <= 0) {
-            const chimneyYOffset = isFacingUp ? 6 : -6;
-            sp.mesh.position.set(pt.x + (Math.random() - 0.5) * 3, pt.y + chimneyYOffset, 20);
+            const roofYOffset = isFacingUp ? 10 : -10;
+            sp.mesh.position.set(pt.x + (Math.random() - 0.5) * 4, pt.y + roofYOffset, 15);
             sp.scale = 0.5;
-            (sp.mesh.material as THREE.MeshBasicMaterial).opacity = 0.8;
+            (sp.mesh.material as THREE.MeshBasicMaterial).opacity = 0.75;
           }
         });
 
@@ -415,24 +694,19 @@ export const TrailPathNav: React.FC = () => {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(580, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(360, ctx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.06, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.11);
+    // Play Classic Indian Railways Locomotive Train Horn
+    if (!isSoundMuted) {
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = audioCtxRef.current || new AudioCtx();
+          if (ctx.state === 'suspended') ctx.resume();
+          audioCtxRef.current = ctx;
+          playTrainHorn(ctx);
+        }
+      } catch {
+        // Fallback
       }
-    } catch {
-      // Fallback
     }
   };
 
@@ -448,7 +722,7 @@ export const TrailPathNav: React.FC = () => {
 
   return (
     <>
-      {/* DESKTOP SIDEBAR: CRISP BOLD RAILWAY TRACK + FULL-CANVAS WEBGL 3D LOCOMOTIVE ENGINE DRIVING FORWARD WITH BUTTER-SMOOTH EASING */}
+      {/* DESKTOP SIDEBAR: CRISP BOLD RAILWAY TRACK + 3D WDM2 CLASSIC LOCOMOTIVE ENGINE WITH FLYING SMOKE */}
       <aside
         aria-label="Railway Section Navigation Trail"
         className="fixed left-3 xl:left-6 top-1/2 -translate-y-1/2 z-40 hidden lg:flex flex-col items-center select-none"
@@ -456,13 +730,26 @@ export const TrailPathNav: React.FC = () => {
         {/* Parchment Box Frame */}
         <div className="relative bg-[#FAF7F0]/95 backdrop-blur-md border-2 border-black/80 rounded-2xl p-2.5 shadow-2xl flex flex-col items-center group min-w-[140px]">
           {/* Top Header Label */}
-          <div className="flex flex-col items-center mb-1 pb-1.5 border-b border-black/20 w-full text-center">
-            <span className="text-[9px] font-mono font-black text-[#821919] uppercase tracking-widest leading-none">
-              ROUTE TRAIL
-            </span>
-            <span className="text-[10px] font-black font-railway text-black tracking-wider uppercase mt-0.5">
-              3D EXPRESS · STOPS
-            </span>
+          <div className="flex items-center justify-between mb-1 pb-1.5 border-b border-black/20 w-full">
+            <div className="flex flex-col text-left">
+              <span className="text-[9px] font-mono font-black text-[#821919] uppercase tracking-widest leading-none">
+                ROUTE TRAIL
+              </span>
+              <span className="text-[10px] font-black font-railway text-black tracking-wider uppercase mt-0.5">
+                EXPRESS · STOPS
+              </span>
+            </div>
+            <button
+              onClick={() => setIsSoundMuted(!isSoundMuted)}
+              title={isSoundMuted ? 'Unmute train sound (chuk chuk chuk)' : 'Mute train sound'}
+              className={`p-1 rounded-md border transition-all ${
+                !isSoundMuted
+                  ? 'bg-[#821919] text-[#FFD200] border-black shadow-xs animate-pulse'
+                  : 'bg-zinc-200 text-zinc-500 border-zinc-400'
+              }`}
+            >
+              {!isSoundMuted ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+            </button>
           </div>
 
           {/* SVG Canvas with Crisp Visible Track */}
@@ -591,7 +878,7 @@ export const TrailPathNav: React.FC = () => {
               })}
             </svg>
 
-            {/* 7. FULL-CANVAS THREE.JS WEBGL 3D LOCOMOTIVE ENGINE CANVAS */}
+            {/* 7. FULL-CANVAS THREE.JS WEBGL 3D WDM2 CLASSIC LOCOMOTIVE ENGINE CANVAS */}
             <div
               ref={canvasContainerRef}
               className="absolute inset-0 w-full h-full pointer-events-none z-30"
